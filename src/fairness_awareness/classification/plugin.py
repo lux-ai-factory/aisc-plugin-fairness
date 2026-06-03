@@ -49,13 +49,21 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
 
 
         # Dataset
-        df_test = self.get_input_data("test-dataset")
+        try:
+            df_test = self.get_input_data("test-dataset")
+        except Exception:
+            self.logger.exception("Failed to load test dataset")
+            raise
         assert isinstance(df_test, pd.DataFrame)
         x_test_np = df_test[column_feature_names].to_numpy().astype(np.float32)
         y_true = df_test[target_feature_name].to_numpy().astype(np.int64)
 
         # ONNX runtime
-        session = self.get_input_data("model")
+        try:
+            session = self.get_input_data("model")
+        except Exception:
+            self.logger.exception("Failed to load ONNX model")
+            raise
         assert isinstance(session, InferenceSession)
         model_session = OnnxModelSession(session)
 
