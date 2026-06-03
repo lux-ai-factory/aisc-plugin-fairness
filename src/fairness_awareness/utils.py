@@ -4,7 +4,7 @@ from typing import Protocol, TypeVar
 
 from pydantic import BaseModel, Field, field_serializer
 
-from vera_plugin_interface import Measure
+from aisc_plugin_interface import Measure
 
 
 class _HasMetricNames(Protocol):

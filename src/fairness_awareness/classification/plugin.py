@@ -1,6 +1,6 @@
 from typing import Any
 
-from vera_plugin_interface import metric, Measure, MetricVisualization, ChartType
+from aisc_plugin_interface import metric, Measure, MetricVisualization, ChartType
 
 from .base_plugin import BaseClassificationFairnessPlugin
 from ..model_input_provider import OnnxModelSession

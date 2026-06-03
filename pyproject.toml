@@ -1,11 +1,11 @@
 [project]
-name = "vera-plugin-fairness"
-version = "0.1.0"
-description = "VERA Dashboard plugin for evaluating machine learning model fairness."
+name = "fairness-awareness"
+version = "0.1.1"
+description = "Dashboard plugin for evaluating model fairness"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "vera-plugin-interface",
+    "aisc-plugin-interface>=0.2.5",
     "numpy>=2.4.1",
     "pandas>=2.3.3",
     "onnxruntime>=1.21.0,<2",
@@ -15,9 +15,6 @@ dependencies = [
 [build-system]
 requires = ["uv_build>=0.9.30,<0.10.0"]
 build-backend = "uv_build"
-
-[tool.uv.sources]
-vera-plugin-interface = { git = "https://github.com/lux-ai-factory/vera-plugin-interface" }
 
 [dependency-groups]
 dev = [

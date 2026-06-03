@@ -1,7 +1,7 @@
 import io
 
 import pandas as pd
-from vera_plugin_interface import BaseInputProvider
+from aisc_plugin_interface import BaseInputProvider
 
 
 class DataFrameProvider(BaseInputProvider):

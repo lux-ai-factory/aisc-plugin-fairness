@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
-from vera_plugin_interface import BaseInputProvider
+from aisc_plugin_interface import BaseInputProvider
 
 if TYPE_CHECKING:
     import numpy as np
