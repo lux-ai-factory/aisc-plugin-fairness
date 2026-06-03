@@ -1,6 +1,6 @@
-# vera-plugin-fairness
+# Fairness Awareness
 
-A Python plugin for ML model fairness evaluation for classification. Built on the [vera-plugin-interface](https://github.com/lux-ai-factory/vera-plugin-interface) framework.
+A Python plugin for ML model fairness evaluation for classification. Built on the [aisc-plugin-interface](https://github.com/lux-ai-factory/aisc-plugin-interface) framework.
 
 ## Features
 
@@ -18,7 +18,7 @@ uv sync
 ### Project Structure
 
 ```
-src/vera_plugin_fairness/
+src/fairness_awareness/
 ├── __init__.py                    # Public exports
 ├── data_input_provider.py         # CSV/Parquet data reader
 ├── model_input_provider.py        # ONNX model wrapper
