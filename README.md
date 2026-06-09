@@ -7,6 +7,8 @@ A Python plugin for ML model fairness evaluation for classification. Built on th
 - **Classification Fairness**: Compares model performance across different selected categories of specified interest feature
 - **Multiple input formats**: CSV and Parquet datasets, ONNX models
 
+![Example Results](./media/example-results.png)
+
 ## Installation
 
 ```bash
