@@ -41,11 +41,7 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
 
         self.logger.info("Parsing config from dataset")
 
-        config: ConfigForm = ConfigForm(
-            features=[],
-            date_feature=None,
-            target_feature=None,
-        )
+        config: ConfigForm = ConfigForm(features=[])
 
         try:
             input_provider = DataFrameProvider(file_content)
@@ -132,15 +128,10 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
                 if f["type"] in (FeatureType.DATE, FeatureType.CATEGORICAL)
             ]
             if possible_date_features:
-                # NOTE: adding an empty string will force the user to make a choice
                 possible_date_features.insert(0, "")
                 config_schema["properties"]["date_feature"]["enum"] = (
                     possible_date_features
                 )
-                default_date = (
-                    possible_date_features[0] if possible_date_features else None
-                )
-                config_schema["properties"]["date_feature"]["default"] = default_date
             else:
                 ui_schema["date_feature"] = {"ui:widget": "hidden"}
 
@@ -151,20 +142,12 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
             possible_target_features = [
                 f["name"]
                 for f in form_dict.get("features", [])
-                if f["type"]
-                in (FeatureType.INTEGER, FeatureType.FLOAT, FeatureType.CATEGORICAL)
+                if f["type"] in (FeatureType.INTEGER, FeatureType.FLOAT, FeatureType.CATEGORICAL)
             ]
             if possible_target_features:
-                # NOTE: adding an empty string will force the user to make a choice
                 possible_target_features.insert(0, "")
                 config_schema["properties"]["target_feature"]["enum"] = (
                     possible_target_features
-                )
-                default_target = (
-                    possible_target_features[-1] if possible_target_features else None
-                )
-                config_schema["properties"]["target_feature"]["default"] = (
-                    default_target
                 )
             else:
                 ui_schema["target_feature"] = {"ui:widget": "hidden"}
@@ -181,15 +164,10 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
                 if f["type"] in (FeatureType.INTEGER, FeatureType.CATEGORICAL)
             ]
             if possible_interest_features:
-                # NOTE: adding an empty string will force the user to make a choice
                 possible_interest_features.insert(0, "")
                 config_schema["properties"]["interest_feature_1"]["enum"] = (possible_interest_features)
                 config_schema["properties"]["interest_feature_2"]["enum"] = (possible_interest_features)
                 config_schema["properties"]["interest_feature_3"]["enum"] = (possible_interest_features)
-                default_interest = (possible_interest_features[-1] if possible_interest_features else None)
-                config_schema["properties"]["interest_feature_1"]["default"] = (default_interest)
-                config_schema["properties"]["interest_feature_2"]["default"] = (default_interest)
-                config_schema["properties"]["interest_feature_3"]["default"] = (default_interest)
             else:
                 ui_schema["interest_feature_1"] = {"ui:widget": "hidden"}
                 ui_schema["interest_feature_2"] = {"ui:widget": "hidden"}
