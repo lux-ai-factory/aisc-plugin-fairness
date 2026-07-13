@@ -4,8 +4,6 @@ from typing import Protocol, TypeVar
 
 from pydantic import BaseModel, Field, field_serializer
 
-from aisc_plugin_interface import Measure
-
 
 class _HasMetricNames(Protocol):
     @classmethod
@@ -127,37 +125,3 @@ def check_features(config, logger) -> tuple[list[str], dict[str, str], bool]:
         column_feature_names.append(feature.name)
 
     return (column_feature_names, interest_feature_names, failure)
-
-
-# ==================== Metric Utils ====================
-
-
-def export_metric(metric_name: str, evaluation_output: dict) -> list[Measure]:
-    """Helper method to export metrics."""
-    values: dict = evaluation_output.get(metric_name, {})
-    scores = values.get("score", [])
-    descriptions = values.get("description", [])
-
-    if isinstance(scores, (int, float)):
-        scores = [scores]
-    if isinstance(descriptions, str):
-        descriptions = [descriptions]
-
-    if scores is None or len(scores) == 0:
-        return []
-
-    measures: list[Measure] = []
-    for i, score in enumerate(scores):
-        desc = descriptions[i] if i < len(descriptions) else None
-
-        measure_kwargs = {}
-        if desc is not None:
-            measure_kwargs["description"] = desc
-        measures.append(
-            Measure(
-                name=metric_name,
-                score=float(score),
-                **measure_kwargs,
-            )
-        )
-    return measures
