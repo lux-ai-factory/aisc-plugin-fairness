@@ -26,6 +26,7 @@ class Feature(BaseModel):
     min: float = Field(...)
     max: float = Field(...)
     type: FeatureType = Field(...)
+    label_mapping: dict[str, str] | None = None
 
     @field_serializer("pid")
     def serialize_pid(self, pid: uuid.UUID | None) -> str | None:
@@ -37,13 +38,10 @@ class Feature(BaseModel):
 
 def check_features(config, logger) -> tuple[list[str], dict[str, str], bool]:
     """Validates features and returns (feature_names, interest_feature_names, failure_flag)."""
-    import numpy as np
     
     # Target must be of type INTEGER
     target_feature_name = config.target_feature
-    target_feature = next(
-        (f for f in config.features if f.name == target_feature_name), None
-    )
+    target_feature = next((f for f in config.features if f.name == target_feature_name), None)
     if target_feature is None:
         logger.error("Target feature not found in features list.")
         return ([], {}, True)
@@ -54,9 +52,7 @@ def check_features(config, logger) -> tuple[list[str], dict[str, str], bool]:
     # Date feature must be of type DATE if specified
     date_feature_name = config.date_feature
     if date_feature_name is not None:
-        date_feature = next(
-            (f for f in config.features if f.name == date_feature_name), None
-        )
+        date_feature = next((f for f in config.features if f.name == date_feature_name), None)
         if date_feature is None:
             logger.error("Date feature not found in features list.")
             return ([], {}, True)
@@ -91,33 +87,16 @@ def check_features(config, logger) -> tuple[list[str], dict[str, str], bool]:
 
     # Verify feature types
     for feature in config.features:
+        # Exclude target and date feature
         if feature.name in (target_feature_name, date_feature_name):
             continue
 
         # Check input feature types
         match feature.type:
-            case FeatureType.CATEGORICAL:
-                logger.error(
-                    "Plugin does not support categorical features as there is no encoder. " \
-                    "Please encode feature '%s' to numeric and mark it as Integer.",
-                    feature.name,
-                )
-                failure = True
             case FeatureType.DATE:
                 logger.error(
                     "Feature '%s' is of type DATE but is not marked as the date feature.",
                     feature.name,
-                )
-                failure = True
-            case FeatureType.INTEGER:
-                pass
-            case FeatureType.FLOAT:
-                pass
-            case _:
-                logger.error(
-                    "Feature '%s' has unrecognized type '%s'. ",
-                    feature.name,
-                    feature.type,
                 )
                 failure = True
 
@@ -125,3 +104,22 @@ def check_features(config, logger) -> tuple[list[str], dict[str, str], bool]:
         column_feature_names.append(feature.name)
 
     return (column_feature_names, interest_feature_names, failure)
+
+
+def parse_label_mappings(mappings_str: str | None) -> dict[str, dict[str, str]]:
+    """Parse a JSON string into {feature_name: {value_str: label_str}}."""
+    if not mappings_str:
+        return {}
+    import json
+
+    try:
+        data = json.loads(mappings_str)
+        if not isinstance(data, dict):
+            return {}
+        return {
+            feat: {str(k): str(v) for k, v in mapping.items()}
+            for feat, mapping in data.items()
+            if isinstance(mapping, dict)
+        }
+    except (json.JSONDecodeError, ValueError):
+        return {}

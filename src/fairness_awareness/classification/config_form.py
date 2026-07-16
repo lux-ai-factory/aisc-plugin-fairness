@@ -31,6 +31,12 @@ FORM_UI_SCHEMA: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "label_mappings": {
+        "ui:widget": "textarea",
+        "ui:options": {
+            "rows": 5,
+        },
+    },
 }
 
 
@@ -43,6 +49,14 @@ class ConfigForm(BaseModel):
 
     features: list[Feature] = Field(
         default_factory=list, description="List of features to use for prediction"
+    )
+    label_mappings: str = Field(
+        default="",
+        title="Label Mappings Override",
+        description=(
+            'JSON mapping feature values to display labels. '
+            'Example: {"home_ownership": {"0": "Rent", "1": "Own", "2": "Mortgage"}}'
+        ),
     )
 
     @model_validator(mode="after")
