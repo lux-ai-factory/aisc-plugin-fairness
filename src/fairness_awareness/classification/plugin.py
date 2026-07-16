@@ -7,6 +7,7 @@ from ..model_input_provider import OnnxModelSession
 from ..utils import (
     export_metric,
     check_features,
+    parse_label_mappings,
     FeatureType,
 )
 
@@ -40,6 +41,11 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
  
         if failure:
             return {}
+
+        parsed_mappings = parse_label_mappings(config.label_mappings)
+        for feature in config.features:
+            if feature.name in parsed_mappings:
+                feature.label_mapping = parsed_mappings[feature.name]
 
         self.logger.debug(
             "Prepared %d features (%d used as features of interest)",
@@ -101,7 +107,12 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
                 y_true_group = y_true[mask]
                 y_pred_group = y_pred[mask]
 
-                group_name = f"group_{group}" if feature.type == FeatureType.INTEGER else str(group)
+                if feature.label_mapping:
+                    group_name = feature.label_mapping.get(str(group), str(group))
+                elif feature.type == FeatureType.INTEGER:
+                    group_name = f"group_{group}"
+                else:
+                    group_name = str(group)
                 
                 # Store metrics with descriptions
                 group_accuracy = accuracy_score(y_true_group, y_pred_group)
