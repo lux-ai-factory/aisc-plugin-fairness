@@ -108,9 +108,7 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
         if form_data is None:
             ui_schema["date_feature"] = {"ui:widget": "hidden"}
             ui_schema["target_feature"] = {"ui:widget": "hidden"}
-            ui_schema["interest_feature_1"] = {"ui:widget": "hidden"}
-            ui_schema["interest_feature_2"] = {"ui:widget": "hidden"}
-            ui_schema["interest_feature_3"] = {"ui:widget": "hidden"}
+            ui_schema["interest_features"] = {"ui:widget": "hidden"}
             return None, config_schema, ui_schema
 
         # Convert to dict for property access if needed
@@ -154,9 +152,7 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
         
         if (
             "properties" in config_schema
-            and "interest_feature_1" in config_schema["properties"]
-            and "interest_feature_2" in config_schema["properties"]
-            and "interest_feature_3" in config_schema["properties"]
+            and "interest_features" in config_schema["properties"]
         ):
             possible_interest_features = [
                 f["name"]
@@ -164,14 +160,10 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
                 if f["type"] in (FeatureType.INTEGER, FeatureType.CATEGORICAL)
             ]
             if possible_interest_features:
-                possible_interest_features.insert(0, "")
-                config_schema["properties"]["interest_feature_1"]["enum"] = (possible_interest_features)
-                config_schema["properties"]["interest_feature_2"]["enum"] = (possible_interest_features)
-                config_schema["properties"]["interest_feature_3"]["enum"] = (possible_interest_features)
+                config_schema["properties"]["interest_features"]["items"]["enum"] = possible_interest_features
+                config_schema["properties"]["interest_features"]["uniqueItems"] = True
             else:
-                ui_schema["interest_feature_1"] = {"ui:widget": "hidden"}
-                ui_schema["interest_feature_2"] = {"ui:widget": "hidden"}
-                ui_schema["interest_feature_3"] = {"ui:widget": "hidden"}
+                ui_schema["interest_features"] = {"ui:widget": "hidden"}
 
         return form_data, config_schema, ui_schema
 

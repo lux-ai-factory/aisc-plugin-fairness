@@ -31,6 +31,9 @@ FORM_UI_SCHEMA: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "interest_features": {
+        "ui:widget": "checkboxes",
+    },
     "label_mappings": {
         "ui:widget": "textarea",
         "ui:options": {
@@ -43,9 +46,11 @@ FORM_UI_SCHEMA: dict[str, dict[str, Any]] = {
 class ConfigForm(BaseModel):
     target_feature: str | None = Field(default=None, title="Target Feature")
     date_feature: str | None = Field(default=None, title="Date Feature")
-    interest_feature_1: str | None = Field(default="", title="Feature of Interest")
-    interest_feature_2: str | None = Field(default="", title="Feature of Interest")
-    interest_feature_3: str | None = Field(default="", title="Feature of Interest")
+    interest_features: list[str] = Field(
+        default_factory=list,
+        title="Features of Interest",
+        description="Select one or more features to analyze",
+    )
 
     features: list[Feature] = Field(
         default_factory=list, description="List of features to use for prediction"
@@ -63,10 +68,6 @@ class ConfigForm(BaseModel):
     def validate_special_features(self) -> "ConfigForm":
         self.target_feature = self.target_feature or None
         self.date_feature = self.date_feature or None
-        # do not set interest features to None due to falsey value of empty string
-        # self.interest_feature_1 = self.interest_feature_1 or None
-        # self.interest_feature_2 = self.interest_feature_2 or None
-        # self.interest_feature_3 = self.interest_feature_3 or None
 
         # Target feature validation
         if self.target_feature is None:

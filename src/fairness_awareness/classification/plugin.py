@@ -87,7 +87,7 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
     
         # For each selected feature
         for feature in config.features:
-            if feature is None or feature.name not in interest_feature_names.keys():
+            if feature is None or feature.name not in interest_feature_names:
                 continue
 
             feature_name = feature.name
