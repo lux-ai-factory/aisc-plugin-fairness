@@ -39,14 +39,14 @@ class Feature(BaseModel):
 def check_features(config, logger) -> tuple[list[str], list[str], bool]:
     """Validates features and returns (feature_names, interest_feature_names, failure_flag)."""
     
-    # Target must be of type INTEGER
+    # Target must be of type INTEGER or CATEGORICAL
     target_feature_name = config.target_feature
     target_feature = next((f for f in config.features if f.name == target_feature_name), None)
     if target_feature is None:
         logger.error("Target feature not found in features list.")
         return ([], [], True)
-    if target_feature.type != FeatureType.INTEGER:
-        logger.error("Target feature '%s' must be of type INTEGER.", target_feature_name)
+    if target_feature.type not in (FeatureType.INTEGER, FeatureType.CATEGORICAL):
+        logger.error("Target feature '%s' must be of type INTEGER or CATEGORICAL.", target_feature_name)
         return ([], [], True)
 
     # Date feature must be of type DATE if specified
