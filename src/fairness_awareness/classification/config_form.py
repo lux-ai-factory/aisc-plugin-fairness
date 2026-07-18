@@ -38,6 +38,7 @@ FORM_UI_SCHEMA: dict[str, dict[str, Any]] = {
         "ui:widget": "textarea",
         "ui:options": {
             "rows": 5,
+            "placeholder": '{"home_ownership": {"0": "Rent", "1": "Own", "2": "Mortgage"}}',
         },
     },
 }
@@ -58,10 +59,7 @@ class ConfigForm(BaseModel):
     label_mappings: str = Field(
         default="",
         title="Label Mappings Override",
-        description=(
-            'JSON mapping feature values to display labels. '
-            'Example: {"home_ownership": {"0": "Rent", "1": "Own", "2": "Mortgage"}}'
-        ),
+        description="Map categorical values to display labels.",
     )
 
     @model_validator(mode="after")
