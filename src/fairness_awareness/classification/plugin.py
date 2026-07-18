@@ -37,14 +37,23 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
         config = self.validate_config_form_data(config_data)
         target_feature_name = config.target_feature
         column_feature_names, interest_feature_names, failure = check_features(config, self.logger)
- 
+
         if failure:
             return {}
 
+        # Merge label mappings: dataset-level as base, plugin-level as override
         parsed_mappings = parse_label_mappings(config.label_mappings)
+        dataset_mappings = config_data.get("dataset_config", {}).get("label_mappings", {})
+
         for feature in config.features:
+            merged = {}
+            for ds_mappings in dataset_mappings.values():
+                if feature.name in ds_mappings:
+                    merged.update(ds_mappings[feature.name])
             if feature.name in parsed_mappings:
-                feature.label_mapping = parsed_mappings[feature.name]
+                merged.update(parsed_mappings[feature.name])
+            if merged:
+                feature.label_mapping = merged
 
         self.logger.debug(
             "Prepared %d features (%d used as features of interest)",
