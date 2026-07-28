@@ -34,7 +34,10 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
 
     @property
     def feature_flags(self) -> PluginFeatureFlags:
-        return PluginFeatureFlags(can_parse_config_from_dataset=True)
+        return PluginFeatureFlags(
+            can_parse_config_from_dataset=True,
+            show_dimensions_visualisation=True,
+        )
 
     def parse_config_from_dataset(self, file_content: bytes) -> dict | None:
         import pandas as pd
@@ -168,5 +171,5 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
         return form_data, config_schema, ui_schema
 
     @abstractmethod
-    def evaluate(self, config_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    def evaluate(self, config_data: dict[str, Any]) -> dict[str, list[dict]]:
         raise NotImplementedError
