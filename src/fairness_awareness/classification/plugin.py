@@ -9,15 +9,72 @@ from ..utils import (
 )
 
 
+@staticmethod
+def _group_name(feature, group_val):
+    if feature.label_mapping:
+        return feature.label_mapping.get(str(group_val), str(group_val))
+    if feature.type == FeatureType.INTEGER:
+        return f"group_{group_val}"
+    return str(group_val)
+
+@staticmethod
+def _per_class_rates(cm):
+    n = cm.shape[0]
+    tpr, fpr, fnr, tnr = [], [], [], []
+    for c in range(n):
+        tp = cm[c, c]
+        fn = cm[c, :].sum() - tp
+        fp = cm[:, c].sum() - tp
+        tn = cm.sum() - tp - fn - fp
+        tpr.append(tp / (tp + fn) if (tp + fn) > 0 else 0.0)
+        fpr.append(fp / (fp + tn) if (fp + tn) > 0 else 0.0)
+        fnr.append(fn / (fn + tp) if (fn + tp) > 0 else 0.0)
+        tnr.append(tn / (tn + fp) if (tn + fp) > 0 else 0.0)
+    return tpr, fpr, fnr, tnr
+
+@staticmethod
+def _macro_avg(vals):
+    return sum(vals) / len(vals) if vals else 0.0
+
+@staticmethod
+def _disparity(group_metrics, metric_key, gnames):
+    vals = [group_metrics[g][metric_key] for g in gnames]
+    return max(vals) - min(vals)
+
+
 class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
     """Classification Fairness plugin."""
 
     plugin_name = "Classification Fairness"
     ui_icon = "balance"
 
-    # ========================== Evaluation ==========================
+    # Per-group metrics (one entry per group + baseline)
+    METRIC_NAMES = [
+        "accuracy",
+        "balanced_accuracy",
+        "mcc",
+        "precision",
+        "f1",
+        "recall",
+        "specificity",
+        "fpr",
+        "fnr", 
+    ]
 
-    METRIC_NAMES = ["accuracy", "f1", "precision", "recall", "mcc"]
+    # Disparity metrics (single value per feature, comparing across groups)
+    DISPARITY_METRIC_NAMES = [
+        "disparity_demographic_parity",
+        "disparity_disparate_impact",
+        "disparity_accuracy",
+        "disparity_balanced_accuracy",
+        "disparity_mcc",
+        "disparity_precision",
+        "disparity_f1",
+        "disparity_recall",
+        "disparity_specificity",
+        "disparity_fpr",
+        "disparity_fnr",
+    ]
 
     def evaluate(self, config_data: dict) -> dict[str, list[dict]]:
         from onnxruntime import InferenceSession
@@ -29,6 +86,8 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
             recall_score,
             f1_score,
             matthews_corrcoef,
+            balanced_accuracy_score,
+            confusion_matrix,
         )
 
         self.logger.info("Starting classification fairness evaluation")
@@ -38,7 +97,8 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
         column_feature_names, interest_feature_names, failure = check_features(config, self.logger)
 
         if failure:
-            return {name: [] for name in self.METRIC_NAMES}
+            all_names = self.METRIC_NAMES + self.DISPARITY_METRIC_NAMES
+            return {name: [] for name in all_names}
 
         parsed_mappings = parse_label_mappings(config.label_mappings)
         for feature in config.features:
@@ -50,7 +110,6 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
             len(column_feature_names),
             len(interest_feature_names),
         )
-
 
         # Dataset
         try:
@@ -74,28 +133,36 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
         y_pred_proba = model_session.predict(x_test_np, probabilities=True)
         y_pred = np.argmax(y_pred_proba, axis=1)
 
-        baseline_accuracy = accuracy_score(y_true, y_pred)
-        baseline_f1 = f1_score(y_true, y_pred, zero_division=0, average="weighted")
-        baseline_precision = precision_score(y_true, y_pred, zero_division=0, average="weighted")
-        baseline_recall = recall_score(y_true, y_pred, zero_division=0, average="weighted")
-        baseline_mcc = (matthews_corrcoef(y_true, y_pred) + 1) / 2
+        all_metric_names = self.METRIC_NAMES + self.DISPARITY_METRIC_NAMES
+        output = {name: [] for name in all_metric_names}
 
-        output = {name: [] for name in self.METRIC_NAMES}
-
+        # Compute metrics for each feature of interest
         for feature in config.features:
             if feature is None or feature.name not in interest_feature_names:
                 continue
 
             feature_name = feature.name
+            groups = df_test[feature.name].unique()
+            group_metrics = {}
+            group_pred_dist = {}
 
-            # Baseline scores
+            # Baseline (full dataset)
+            cm_full = confusion_matrix(y_true, y_pred)
+            n_classes_full = cm_full.shape[0]
+            _, fpr_full, fnr_full, tnr_full = _per_class_rates(cm_full)
+
             baseline_scores = {
-                "accuracy": baseline_accuracy,
-                "f1": baseline_f1,
-                "precision": baseline_precision,
-                "recall": baseline_recall,
-                "mcc": baseline_mcc,
+                "accuracy": accuracy_score(y_true, y_pred),
+                "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+                "mcc": (matthews_corrcoef(y_true, y_pred) + 1) / 2,
+                "precision": precision_score(y_true, y_pred, zero_division=0, average="weighted"),
+                "f1": f1_score(y_true, y_pred, zero_division=0, average="weighted"),
+                "recall": recall_score(y_true, y_pred, zero_division=0, average="weighted"),
+                "specificity": _macro_avg(tnr_full),
+                "fpr": _macro_avg(fpr_full),
+                "fnr": _macro_avg(fnr_full),
             }
+
             for metric_name in self.METRIC_NAMES:
                 output[metric_name].append({
                     "score": baseline_scores[metric_name],
@@ -106,46 +173,101 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
                     },
                 })
 
-            for group in df_test[feature.name].unique():
-                self.logger.debug(f"Calculating metrics for group '{group}' in feature '{feature.name}'")
+            # Per-group metrics
+            for group_val in groups:
+                mask = df_test[feature.name] == group_val
+                y_true_g = y_true[mask]
+                y_pred_g = y_pred[mask]
 
-                mask = df_test[feature.name] == group
-                y_true_group = y_true[mask]
-                y_pred_group = y_pred[mask]
+                gname = _group_name(feature, group_val)
+                cm_g = confusion_matrix(y_true_g, y_pred_g)
+                _, fpr_list, fnr_list, tnr_list = _per_class_rates(cm_g)
 
-                if feature.label_mapping:
-                    group_name = feature.label_mapping.get(str(group), str(group))
-                elif feature.type == FeatureType.INTEGER:
-                    group_name = f"group_{group}"
-                else:
-                    group_name = str(group)
-
-                group_scores = {
-                    "accuracy": accuracy_score(y_true_group, y_pred_group),
-                    "f1": f1_score(y_true_group, y_pred_group, zero_division=0, average="weighted"),
-                    "precision": precision_score(y_true_group, y_pred_group, zero_division=0, average="weighted"),
-                    "recall": recall_score(y_true_group, y_pred_group, zero_division=0, average="weighted"),
-                    "mcc": (matthews_corrcoef(y_true_group, y_pred_group) + 1) / 2,
+                # Full predicted-class distribution for this group (used for demographic parity)
+                group_pred_dist[gname] = np.bincount(y_pred_g, minlength=n_classes_full).astype(float) / len(y_pred_g)
+                group_metrics[gname] = {
+                    "accuracy": accuracy_score(y_true_g, y_pred_g),
+                    "balanced_accuracy": balanced_accuracy_score(y_true_g, y_pred_g),
+                    "mcc": (matthews_corrcoef(y_true_g, y_pred_g) + 1) / 2,
+                    "precision": precision_score(y_true_g, y_pred_g, zero_division=0, average="weighted"),
+                    "f1": f1_score(y_true_g, y_pred_g, zero_division=0, average="weighted"),
+                    "recall": recall_score(y_true_g, y_pred_g, zero_division=0, average="weighted"),
+                    "specificity": _macro_avg(tnr_list),
+                    "fpr": _macro_avg(fpr_list),
+                    "fnr": _macro_avg(fnr_list),
                 }
 
                 for metric_name in self.METRIC_NAMES:
                     output[metric_name].append({
-                        "score": group_scores[metric_name],
+                        "score": group_metrics[gname][metric_name],
                         "dimensions": {
                             "display_name": f"{feature_name}_{metric_name}",
-                            "group": group_name,
+                            "group": gname,
                             "feature": feature_name,
                         },
                     })
 
-        self.logger.info("Classification fairness evaluation completed")
+            # Disparity metrics require at least 2 groups to compare
+            if len(group_metrics) < 2:
+                for disp_name in self.DISPARITY_METRIC_NAMES:
+                    output[disp_name].append({
+                        "score": 0.0,
+                        "dimensions": {
+                            "display_name": f"{feature_name}_{disp_name}",
+                            "feature": feature_name,
+                        },
+                    })
+                continue
 
+            gnames = list(group_metrics.keys())
+            dists = np.array([group_pred_dist[g] for g in gnames])
+
+            if n_classes_full == 2:
+                # Binary: standard demographic parity uses the positive class (class 1)
+                pos_rates = dists[:, 1]
+                demo_parity = float(pos_rates.max() - pos_rates.min())
+                impact_ratio = float(pos_rates.min() / pos_rates.max()) if pos_rates.max() > 0 else 0.0
+            else:
+                # Multi-class: worst-case class disparity across all classes
+                class_disparities = dists.max(axis=0) - dists.min(axis=0)
+                demo_parity = float(class_disparities.max())
+                class_ratios = np.where(
+                    dists.max(axis=0) > 0,
+                    dists.min(axis=0) / dists.max(axis=0),
+                    1.0,
+                )
+                impact_ratio = float(class_ratios.min())
+
+            disparity_scores = {
+                "disparity_demographic_parity": demo_parity,
+                "disparity_disparate_impact": impact_ratio,
+                "disparity_accuracy": _disparity(group_metrics, "accuracy", gnames),
+                "disparity_balanced_accuracy": _disparity(group_metrics, "balanced_accuracy", gnames),
+                "disparity_mcc": _disparity(group_metrics, "mcc", gnames),
+                "disparity_precision": _disparity(group_metrics, "precision", gnames),
+                "disparity_f1": _disparity(group_metrics, "f1", gnames),
+                "disparity_recall": _disparity(group_metrics, "recall", gnames),
+                "disparity_specificity": _disparity(group_metrics, "specificity", gnames),
+                "disparity_fpr": _disparity(group_metrics, "fpr", gnames),
+                "disparity_fnr": _disparity(group_metrics, "fnr", gnames),
+            }
+
+            for disp_name, score in disparity_scores.items():
+                output[disp_name].append({
+                    "score": score,
+                    "dimensions": {
+                        "display_name": f"{feature_name}_{disp_name}",
+                        "feature": feature_name,
+                    },
+                })
+
+        self.logger.info("Classification fairness evaluation completed")
         return output
 
     # ========================== Metrics ==========================
 
     def get_metrics(self) -> list[str]:
-        return list(self.METRIC_NAMES)
+        return self.METRIC_NAMES + self.DISPARITY_METRIC_NAMES
 
     def export_metrics(self, evaluation_output: dict) -> list[Measure]:
         results: list[Measure] = []
@@ -167,13 +289,30 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
         _, interest_feature_names, failure = check_features(config, self.logger)
         if failure:
             return []
-        return [
-            MetricVisualization(
-                chart_type=ChartType.RADAR,
-                metrics=list(self.METRIC_NAMES),
-                title=f"Fairness by {feature_name}",
-                description=f"Per-group metrics for feature '{feature_name}'",
-                filter_dimensions={"feature": feature_name},
+
+        visualizations = []
+
+        for feature_name in interest_feature_names:
+            # Radar: original per-group classification metrics
+            visualizations.append(
+                MetricVisualization(
+                    chart_type=ChartType.RADAR,
+                    metrics=self.METRIC_NAMES,
+                    title=f"Classification Metrics by {feature_name}",
+                    description=f"Per-group classification quality metrics for feature '{feature_name}'",
+                    filter_dimensions={"feature": feature_name},
+                )
             )
-            for feature_name in interest_feature_names
-        ]
+
+            # Bar: disparity metrics
+            visualizations.append(
+                MetricVisualization(
+                    chart_type=ChartType.BARS,
+                    metrics=self.DISPARITY_METRIC_NAMES,
+                    title=f"Fairness Disparities by {feature_name}",
+                    description=f"Fairness disparity metrics for feature '{feature_name}' (lower is fairer)",
+                    filter_dimensions={"feature": feature_name},
+                )
+            )
+
+        return visualizations
