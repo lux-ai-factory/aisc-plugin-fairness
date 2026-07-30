@@ -300,7 +300,8 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
                     metrics=self.METRIC_NAMES,
                     title=f"Classification Metrics by {feature_name}",
                     description=f"Per-group classification quality metrics for feature '{feature_name}'",
-                    filter_dimensions={"feature": feature_name},
+                    filter_dimensions={"feature": [feature_name]},
+                    group_by_dimensions=["group"],
                 )
             )
 
@@ -311,7 +312,7 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
                     metrics=self.DISPARITY_METRIC_NAMES,
                     title=f"Fairness Disparities by {feature_name}",
                     description=f"Fairness disparity metrics for feature '{feature_name}' (lower is fairer)",
-                    filter_dimensions={"feature": feature_name},
+                    filter_dimensions={"feature": [feature_name]},
                 )
             )
 
