@@ -126,7 +126,7 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
             possible_date_features = [
                 f["name"]
                 for f in form_dict.get("features", [])
-                if f["type"] in (FeatureType.DATE, FeatureType.CATEGORICAL)
+                if f["type"] in (FeatureType.DATE)
             ]
             if possible_date_features:
                 possible_date_features.insert(0, "")
