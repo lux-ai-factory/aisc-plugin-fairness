@@ -31,46 +31,23 @@ FORM_UI_SCHEMA: dict[str, dict[str, Any]] = {
             },
         },
     },
-    "label_mappings": {
-        "ui:widget": "textarea",
-        "ui:options": {
-            "rows": 5,
-        },
-    },
 }
-
 
 class ConfigForm(BaseModel):
     target_feature: str | None = Field(default=None, title="Target Feature")
     date_feature: str | None = Field(default=None, title="Date Feature")
-    interest_feature_1: str | None = Field(default="", title="Feature of Interest")
-    interest_feature_2: str | None = Field(default="", title="Feature of Interest")
-    interest_feature_3: str | None = Field(default="", title="Feature of Interest")
 
     features: list[Feature] = Field(
         default_factory=list, description="List of features to use for prediction"
-    )
-    label_mappings: str = Field(
-        default="",
-        title="Label Mappings Override",
-        description=(
-            'JSON mapping feature values to display labels. '
-            'Example: {"home_ownership": {"0": "Rent", "1": "Own", "2": "Mortgage"}}'
-        ),
     )
 
     @model_validator(mode="after")
     def validate_special_features(self) -> "ConfigForm":
         self.target_feature = self.target_feature or None
         self.date_feature = self.date_feature or None
-        # do not set interest features to None due to falsey value of empty string
-        # self.interest_feature_1 = self.interest_feature_1 or None
-        # self.interest_feature_2 = self.interest_feature_2 or None
-        # self.interest_feature_3 = self.interest_feature_3 or None
 
         # Target feature validation
         if self.target_feature is None:
-            # raise ValueError("Target feature must be specified.")
             return self
 
         target_feature = next(
@@ -80,19 +57,17 @@ class ConfigForm(BaseModel):
             raise ValueError("Target feature must be one of the configured features.")
 
         # Date feature validation
-        if self.date_feature is None:
-            return self
+        if self.date_feature is not None:
+            date_feature = next(
+                (f for f in self.features if f.name == self.date_feature), None
+            )
+            if date_feature is None:
+                raise ValueError("Date feature must be one of the configured features.")
 
-        date_feature = next(
-            (f for f in self.features if f.name == self.date_feature), None
-        )
-        if date_feature is None:
-            raise ValueError("Date feature must be one of the configured features.")
+            if date_feature.type != FeatureType.DATE:
+                raise ValueError("Date feature must be of type Date.")
 
-        if date_feature.type != FeatureType.DATE:
-            raise ValueError("Date feature must be of type Date.")
-
-        if target_feature == date_feature:
-            raise ValueError("Target feature must be different from date feature.")
+            if target_feature == date_feature:
+                raise ValueError("Target feature must be different from date feature.")
 
         return self

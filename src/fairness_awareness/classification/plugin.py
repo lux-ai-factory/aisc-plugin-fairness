@@ -1,15 +1,8 @@
-from typing import Any
-
 from aisc_plugin_interface import metric, Measure, MetricVisualization, ChartType
 
 from .base_plugin import BaseClassificationFairnessPlugin
 from ..model_input_provider import OnnxModelSession
-from ..utils import (
-    export_metric,
-    check_features,
-    parse_label_mappings,
-    FeatureType,
-)
+from ..utils import check_features, FeatureType
 
 
 class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
@@ -18,9 +11,13 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
     plugin_name = "Classification Fairness"
     ui_icon = "balance"
 
+    METRIC_NAMES = ["accuracy", "f1", "precision", "recall", "mcc"]
+
     # ========================== Evaluation ==========================
 
-    def evaluate(self, config_data: dict) -> dict[str, dict[str, Any]]:
+    def evaluate(self, config_data: dict) -> dict[str, list[Measure]]:
+        measures: dict[str, list[Measure]] = dict.fromkeys(self.METRIC_NAMES, [])
+
         from onnxruntime import InferenceSession
         import numpy as np
         import pandas as pd
@@ -37,22 +34,15 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
         # Config setup
         config = self.validate_config_form_data(config_data)
         target_feature_name = config.target_feature
-        column_feature_names, interest_feature_names, failure = check_features(config, self.logger)
- 
-        if failure:
-            return {}
+        column_feature_names, failure = check_features(config, self.logger)
 
-        parsed_mappings = parse_label_mappings(config.label_mappings)
-        for feature in config.features:
-            if feature.name in parsed_mappings:
-                feature.label_mapping = parsed_mappings[feature.name]
+        if failure:
+            return {name: [] for name in self.METRIC_NAMES}
 
         self.logger.debug(
-            "Prepared %d features (%d used as features of interest)",
+            "Prepared %d features",
             len(column_feature_names),
-            len(interest_feature_names.values()),
         )
-
 
         # Dataset
         try:
@@ -76,166 +66,192 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
         y_pred_proba = model_session.predict(x_test_np, probabilities=True)
         y_pred = np.argmax(y_pred_proba, axis=1)
 
-
-        # metric name holding dicts with score(s) and description(s)
-        metrics: dict[str, dict[str, Any]] = {}
-
         baseline_accuracy = accuracy_score(y_true, y_pred)
         baseline_f1 = f1_score(y_true, y_pred, zero_division=0, average="weighted")
-        baseline_precision = precision_score(y_true, y_pred, zero_division=0, average="weighted")
-        baseline_recall = recall_score(y_true, y_pred, zero_division=0, average="weighted")
+        baseline_precision = precision_score(
+            y_true, y_pred, zero_division=0, average="weighted"
+        )
+        baseline_recall = recall_score(
+            y_true, y_pred, zero_division=0, average="weighted"
+        )
         baseline_mcc = (matthews_corrcoef(y_true, y_pred) + 1) / 2
-    
+
+        baseline_scores = {
+            "accuracy": baseline_accuracy,
+            "f1": baseline_f1,
+            "precision": baseline_precision,
+            "recall": baseline_recall,
+            "mcc": baseline_mcc,
+        }
+
+        # ADDED FIX: Use metric_name instead of hardcoding "accuracy"
+        for metric_name in self.METRIC_NAMES:
+            measures[metric_name].append(
+                Measure(
+                    name=metric_name,
+                    score=baseline_scores[metric_name],
+                    dimensions={"feature_group": "baseline", "feature": "N/A"},
+                    unit="percentage",
+                )
+            )
+
         # For each selected feature
-        for feature in config.features:
-            if feature is None or feature.name not in interest_feature_names.keys():
+        for column_feature_name in column_feature_names:
+            feature = next(
+                (f for f in config.features if f.name == column_feature_name), None
+            )
+            if feature is None:
                 continue
 
-            metric_name_prefix = interest_feature_names[feature.name]
+            unique_val_count = df_test[feature.name].nunique()
+            if feature.type == FeatureType.CATEGORICAL or unique_val_count < 4:
+                groups = df_test[feature.name].astype(str)
+            else:
+                try:
+                    binned = pd.qcut(df_test[feature.name], q=4, duplicates="drop")
 
-            metrics[f"{metric_name_prefix}_accuracy"] = {"score": [baseline_accuracy], "description": ["baseline"]}
-            metrics[f"{metric_name_prefix}_f1"] = {"score": [baseline_f1], "description": ["baseline"]}
-            metrics[f"{metric_name_prefix}_precision"] = {"score": [baseline_precision], "description": ["baseline"]}
-            metrics[f"{metric_name_prefix}_recall"] = {"score": [baseline_recall], "description": ["baseline"]}
-            metrics[f"{metric_name_prefix}_mcc"] = {"score": [baseline_mcc], "description": ["baseline"]}
+                    unique_bins = sorted(binned.dropna().unique())
+                    num_bins = len(unique_bins)
 
-            # For each group in feature
-            for group in df_test[feature.name].unique():
-                self.logger.debug(f"Calculating metrics for group '{group}' in feature '{feature.name}'")
+                    if num_bins == 4:
+                        prefix = "Q"
+                    elif num_bins == 3:
+                        prefix = "Tertile "
+                    elif num_bins == 2:
+                        prefix = "Half "
+                    else:
+                        prefix = "Bin "
 
-                mask = df_test[feature.name] == group
+                    interval_mapping = {}
+                    for i, interval in enumerate(unique_bins):
+                        left = round(interval.left, 2)
+                        right = round(interval.right, 2)
+                        interval_mapping[interval] = (
+                            f"{prefix}{i + 1} ({left} - {right})"
+                        )
+
+                    groups = binned.map(interval_mapping).astype(str)
+                except ValueError:
+                    groups = df_test[feature.name].astype(str)
+
+            for group in sorted(groups.unique()):
+                self.logger.debug(
+                    f"Calculating metrics for group '{group}' in feature '{feature.name}'"
+                )
+
+                mask = groups == group
                 y_true_group = y_true[mask]
                 y_pred_group = y_pred[mask]
 
-                if feature.label_mapping:
-                    group_name = feature.label_mapping.get(str(group), str(group))
-                elif feature.type == FeatureType.INTEGER:
-                    group_name = f"group_{group}"
-                else:
-                    group_name = str(group)
-                
-                # Store metrics with descriptions
-                group_accuracy = accuracy_score(y_true_group, y_pred_group)
-                metrics[f"{metric_name_prefix}_accuracy"]["score"].append(group_accuracy)
-                metrics[f"{metric_name_prefix}_accuracy"]["description"].append(group_name)
+                if len(y_true_group) == 0:
+                    continue
 
-                group_f1 = f1_score(y_true_group, y_pred_group, zero_division=0, average="weighted")
-                metrics[f"{metric_name_prefix}_f1"]["score"].append(group_f1)
-                metrics[f"{metric_name_prefix}_f1"]["description"].append(group_name)
+                group_scores = {
+                    "accuracy": accuracy_score(y_true_group, y_pred_group),
+                    "f1": f1_score(
+                        y_true_group,
+                        y_pred_group,
+                        zero_division=0,
+                        average="weighted",
+                    ),
+                    "precision": precision_score(
+                        y_true_group,
+                        y_pred_group,
+                        zero_division=0,
+                        average="weighted",
+                    ),
+                    "recall": recall_score(
+                        y_true_group,
+                        y_pred_group,
+                        zero_division=0,
+                        average="weighted",
+                    ),
+                    "mcc": (matthews_corrcoef(y_true_group, y_pred_group) + 1) / 2,
+                }
 
-                group_precision = precision_score(y_true_group, y_pred_group, zero_division=0, average="weighted")
-                metrics[f"{metric_name_prefix}_precision"]["score"].append(group_precision)
-                metrics[f"{metric_name_prefix}_precision"]["description"].append(group_name)
-
-                group_recall = recall_score(y_true_group, y_pred_group, zero_division=0, average="weighted")
-                metrics[f"{metric_name_prefix}_recall"]["score"].append(group_recall)
-                metrics[f"{metric_name_prefix}_recall"]["description"].append(group_name)
-
-                group_mcc = (matthews_corrcoef(y_true_group, y_pred_group) + 1) / 2
-                metrics[f"{metric_name_prefix}_mcc"]["score"].append(group_mcc)
-                metrics[f"{metric_name_prefix}_mcc"]["description"].append(group_name)
+                for metric_name in self.METRIC_NAMES:
+                    measures[metric_name].append(
+                        Measure(
+                            name=metric_name,
+                            score=group_scores[metric_name],
+                            dimensions={
+                                "feature_group": str(group),
+                                "feature": feature.name,
+                            },
+                            unit="percentage",
+                        )
+                    )
 
         self.logger.info("Classification fairness evaluation completed")
 
-        return metrics
+        return measures
 
     # ========================== Metrics ==========================
 
-    # Interest feature 1
-    @metric("interest_feature_1_accuracy")
-    def interest_feature_1_accuracy_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_1_accuracy", evaluation_output)
-    
-    @metric("interest_feature_1_f1")
-    def interest_feature_1_f1_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_1_f1", evaluation_output)
-    
-    @metric("interest_feature_1_precision")
-    def interest_feature_1_precision_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_1_precision", evaluation_output)
+    @metric("accuracy")
+    def accuracy_metric(
+        self, evaluation_output: dict[str, list[Measure]]
+    ) -> list[Measure]:
+        return evaluation_output["accuracy"]
 
-    @metric("interest_feature_1_recall")
-    def interest_feature_1_recall_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_1_recall", evaluation_output)
+    @metric("f1")
+    def f1_metric(self, evaluation_output: dict[str, list[Measure]]) -> list[Measure]:
+        return evaluation_output["f1"]
 
-    @metric("interest_feature_1_mcc")
-    def interest_feature_1_mcc_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_1_mcc", evaluation_output)
+    @metric("precision")
+    def recision_metric(
+        self, evaluation_output: dict[str, list[Measure]]
+    ) -> list[Measure]:
+        return evaluation_output["precision"]
 
-    # Interest feature 2
-    @metric("interest_feature_2_accuracy")
-    def interest_feature_2_accuracy_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_2_accuracy", evaluation_output)
+    @metric("recall")
+    def recall_metric(
+        self, evaluation_output: dict[str, list[Measure]]
+    ) -> list[Measure]:
+        return evaluation_output["recall"]
 
-    @metric("interest_feature_2_f1")
-    def interest_feature_2_f1_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_2_f1", evaluation_output)
-    
-    @metric("interest_feature_2_precision")
-    def interest_feature_2_precision_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_2_precision", evaluation_output)
-
-    @metric("interest_feature_2_recall")
-    def interest_feature_2_recall_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_2_recall", evaluation_output)
-
-    @metric("interest_feature_2_mcc")
-    def interest_feature_2_mcc_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_2_mcc", evaluation_output)
-
-    # Interest feature 3
-    @metric("interest_feature_3_accuracy")
-    def interest_feature_3_accuracy_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_3_accuracy", evaluation_output)
-
-    @metric("interest_feature_3_f1")
-    def interest_feature_3_f1_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_3_f1", evaluation_output)
-    
-    @metric("interest_feature_3_precision")
-    def interest_feature_3_precision_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_3_precision", evaluation_output)
-
-    @metric("interest_feature_3_recall")
-    def interest_feature_3_recall_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_3_recall", evaluation_output)
-
-    @metric("interest_feature_3_mcc")
-    def interest_feature_3_mcc_metric(self, evaluation_output: dict) -> list[Measure]:
-        return export_metric("interest_feature_3_mcc", evaluation_output)
+    @metric("mcc")
+    def mcc_metric(self, evaluation_output: dict[str, list[Measure]]) -> list[Measure]:
+        return evaluation_output["mcc"]
 
     # ========================== Visualization ==========================
 
     def get_metric_visualizations(self, config_data: dict) -> list[MetricVisualization]:
-        return [
-            MetricVisualization(
+        config = self.validate_config_form_data(config_data)
+
+        metric_visualizations: list[MetricVisualization] = []
+
+        metric_visualization = MetricVisualization(
+            title=f"Baseline",
+            chart_type=ChartType.RADAR,
+            metrics=[
+                "accuracy",
+                "f1",
+                "precision",
+                "recall",
+                "mcc",
+            ],
+            filter_dimensions={"feature": ["N/A"]},
+        )
+        metric_visualizations.append(metric_visualization)
+
+        for feature in config.features:
+            if feature.name in [config.target_feature, config.date_feature]:
+                continue
+
+            metric_visualization = MetricVisualization(
+                title=f"Feature ({feature.name})",
                 chart_type=ChartType.RADAR,
                 metrics=[
-                    "interest_feature_1_accuracy",
-                    "interest_feature_1_f1",
-                    "interest_feature_1_precision",
-                    "interest_feature_1_recall",
-                    "interest_feature_1_mcc",
+                    "accuracy",
+                    "f1",
+                    "precision",
+                    "recall",
+                    "mcc",
                 ],
-            ),
-            MetricVisualization(
-                chart_type=ChartType.RADAR,
-                metrics=[
-                    "interest_feature_2_accuracy",
-                    "interest_feature_2_f1",
-                    "interest_feature_2_precision",
-                    "interest_feature_2_recall",
-                    "interest_feature_2_mcc",
-                ],
-            ),
-            MetricVisualization(
-                chart_type=ChartType.RADAR,
-                metrics=[
-                    "interest_feature_3_accuracy",
-                    "interest_feature_3_f1",
-                    "interest_feature_3_precision",
-                    "interest_feature_3_recall",
-                    "interest_feature_3_mcc",
-                ],
-            ),
-        ]
+                filter_dimensions={"feature": [feature.name, "N/A"]},
+                group_by_dimension_keys=["feature_group"],
+            )
+            metric_visualizations.append(metric_visualization)
+
+        return metric_visualizations
