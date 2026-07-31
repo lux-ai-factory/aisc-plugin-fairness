@@ -167,7 +167,6 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
                 output[metric_name].append({
                     "score": baseline_scores[metric_name],
                     "dimensions": {
-                        "display_name": f"{feature_name}_{metric_name}",
                         "group": "baseline",
                         "feature": feature_name,
                     },
@@ -201,7 +200,6 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
                     output[metric_name].append({
                         "score": group_metrics[gname][metric_name],
                         "dimensions": {
-                            "display_name": f"{feature_name}_{metric_name}",
                             "group": gname,
                             "feature": feature_name,
                         },
@@ -213,7 +211,6 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
                     output[disp_name].append({
                         "score": 0.0,
                         "dimensions": {
-                            "display_name": f"{feature_name}_{disp_name}",
                             "feature": feature_name,
                         },
                     })
@@ -256,7 +253,6 @@ class ClassificationFairnessPlugin(BaseClassificationFairnessPlugin):
                 output[disp_name].append({
                     "score": score,
                     "dimensions": {
-                        "display_name": f"{feature_name}_{disp_name}",
                         "feature": feature_name,
                     },
                 })
