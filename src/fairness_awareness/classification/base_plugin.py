@@ -34,7 +34,10 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
 
     @property
     def feature_flags(self) -> PluginFeatureFlags:
-        return PluginFeatureFlags(can_parse_config_from_dataset=True)
+        return PluginFeatureFlags(
+            can_parse_config_from_dataset=True,
+            show_dimensions_visualisation=True,
+        )
 
     def parse_config_from_dataset(self, file_content: bytes) -> dict | None:
         import pandas as pd
@@ -108,9 +111,7 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
         if form_data is None:
             ui_schema["date_feature"] = {"ui:widget": "hidden"}
             ui_schema["target_feature"] = {"ui:widget": "hidden"}
-            ui_schema["interest_feature_1"] = {"ui:widget": "hidden"}
-            ui_schema["interest_feature_2"] = {"ui:widget": "hidden"}
-            ui_schema["interest_feature_3"] = {"ui:widget": "hidden"}
+            ui_schema["interest_features"] = {"ui:widget": "hidden"}
             return None, config_schema, ui_schema
 
         # Convert to dict for property access if needed
@@ -125,7 +126,7 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
             possible_date_features = [
                 f["name"]
                 for f in form_dict.get("features", [])
-                if f["type"] in (FeatureType.DATE, FeatureType.CATEGORICAL)
+                if f["type"] in (FeatureType.DATE)
             ]
             if possible_date_features:
                 possible_date_features.insert(0, "")
@@ -154,9 +155,7 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
         
         if (
             "properties" in config_schema
-            and "interest_feature_1" in config_schema["properties"]
-            and "interest_feature_2" in config_schema["properties"]
-            and "interest_feature_3" in config_schema["properties"]
+            and "interest_features" in config_schema["properties"]
         ):
             possible_interest_features = [
                 f["name"]
@@ -164,17 +163,13 @@ class BaseClassificationFairnessPlugin(BaseEvaluationPlugin[ConfigForm]):
                 if f["type"] in (FeatureType.INTEGER, FeatureType.CATEGORICAL)
             ]
             if possible_interest_features:
-                possible_interest_features.insert(0, "")
-                config_schema["properties"]["interest_feature_1"]["enum"] = (possible_interest_features)
-                config_schema["properties"]["interest_feature_2"]["enum"] = (possible_interest_features)
-                config_schema["properties"]["interest_feature_3"]["enum"] = (possible_interest_features)
+                config_schema["properties"]["interest_features"]["items"]["enum"] = possible_interest_features
+                config_schema["properties"]["interest_features"]["uniqueItems"] = True
             else:
-                ui_schema["interest_feature_1"] = {"ui:widget": "hidden"}
-                ui_schema["interest_feature_2"] = {"ui:widget": "hidden"}
-                ui_schema["interest_feature_3"] = {"ui:widget": "hidden"}
+                ui_schema["interest_features"] = {"ui:widget": "hidden"}
 
         return form_data, config_schema, ui_schema
 
     @abstractmethod
-    def evaluate(self, config_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    def evaluate(self, config_data: dict[str, Any]) -> dict[str, list[dict]]:
         raise NotImplementedError
